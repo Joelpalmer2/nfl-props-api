@@ -1,5 +1,5 @@
-const cheerio = require('cheerio');
-const axios = require('axios');
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -12,27 +12,41 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('Fetching NFL props from fantasysp.com...');
+    console.log('Starting NFL props scrape...');
     
     const response = await axios.get('https://www.fantasysp.com/nfl/prop-bets', {
+      timeout: 10000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
         'Upgrade-Insecure-Requests': '1'
       }
     });
 
+    console.log('Got response, parsing HTML...');
     const $ = cheerio.load(response.data);
     const props = [];
 
-    // Extract data using the same selectors as your R code
+    // Try multiple selectors in case the structure varies
+    let elementsFound = 0;
+    
     $('.player-prop-wrapper').each((index, element) => {
-      const name = $(element).find('a').text().trim();
-      const stat = $(element).find('.prop-stat-name').text().trim();
-      const line = $(element).find('.prop-stat-name + td').text().trim();
+      elementsFound++;
+      const nameEl = $(element).find('a');
+      const statEl = $(element).find('.prop-stat-name');
+      const lineEl = $(element).find('.prop-stat-name + td');
+      
+      const name = nameEl.text().trim();
+      const stat = statEl.text().trim();
+      const line = lineEl.text().trim();
+
+      console.log(`Element ${index}: name="${name}", stat="${stat}", line="${line}"`);
 
       if (name && stat && line) {
         props.push({
@@ -45,7 +59,20 @@ export default async function handler(req, res) {
       }
     });
 
-    console.log(`Successfully scraped ${props.length} props`);
+    console.log(`Found ${elementsFound} wrapper elements, extracted ${props.length} valid props`);
+
+    // If no props found, return debug info
+    if (props.length === 0) {
+      return res.status(200).json({
+        success: false,
+        debug: {
+          message: 'No props extracted',
+          elementsFound: elementsFound,
+          htmlLength: response.data.length,
+          sampleHtml: response.data.substring(0, 500)
+        }
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -57,12 +84,13 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Error scraping data:', error.message);
+    console.error('Error details:', error);
     return res.status(500).json({
       success: false,
       error: {
         message: 'Failed to fetch NFL props data',
-        details: error.message
+        details: error.message,
+        stack: error.stack
       }
     });
   }
